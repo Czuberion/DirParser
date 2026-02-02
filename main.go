@@ -269,23 +269,26 @@ func runVerifyMode(data *DMDEData, targetDir string) {
 
 // stripCategoryFromPath removes the optional category prefix from a captured path.
 // DMDE format has: flags flags [category] path
-// Category is a short code (like 'f') separated from the path by 2+ spaces.
-// Folder names can have single spaces (e.g., "Some Dir") but not 2+ consecutive spaces.
-// So we look for 2+ consecutive spaces and take everything after as the path.
-func stripCategoryFromPath(rawPath string) string {
-	// Look for 2+ consecutive spaces which separate category from path
-	for i := 0; i < len(rawPath)-1; i++ {
-		if rawPath[i] == ' ' && rawPath[i+1] == ' ' {
-			// Found 2+ spaces, skip all spaces and return the rest
-			for i < len(rawPath) && rawPath[i] == ' ' {
-				i++
-			}
-			if i < len(rawPath) {
-				return rawPath[i:]
+// We only strip prefixes that match known categories from the "File Categories:" line.
+// This avoids false positives with folder names that might look like categories.
+func stripCategoryFromPath(rawPath string, knownCategories map[string]bool) string {
+	trimmed := strings.TrimLeft(rawPath, " \t")
+	if len(knownCategories) == 0 {
+		return trimmed
+	}
+
+	// Try to match a known category at the start followed by spaces
+	for cat := range knownCategories {
+		if strings.HasPrefix(trimmed, cat) {
+			rest := trimmed[len(cat):]
+			// Must be followed by at least one space
+			if len(rest) > 0 && rest[0] == ' ' {
+				return strings.TrimLeft(rest, " ")
 			}
 		}
 	}
-	return rawPath
+
+	return trimmed
 }
 
 // parseDMDEFile reads the DMDE file and extracts directories, files, and expected counts
@@ -300,6 +303,24 @@ func parseDMDEFile(filePath string) (*DMDEData, error) {
 	content := decodeFileContent(rawData)
 
 	data := &DMDEData{}
+
+	// First pass: extract known file categories from "File Categories:" line
+	// Format: "File Categories:  f d " or "File Categories:  . , xf" (comma as separator)
+	knownCategories := make(map[string]bool)
+	categoryRegex := regexp.MustCompile(`File Categories:\s*(.*)$`)
+	for _, line := range strings.Split(content, "\n") {
+		if matches := categoryRegex.FindStringSubmatch(line); len(matches) > 1 {
+			cats := strings.Fields(matches[1])
+			for _, cat := range cats {
+				// Skip commas - they're separators between categories, not actual categories
+				if cat == "," {
+					continue
+				}
+				knownCategories[cat] = true
+			}
+			break
+		}
+	}
 
 	// Regex to match directory lines (contains <DIR>, then flags, then path ending with \)
 	// Format: date time <DIR> flags flags [category]  path\
@@ -323,8 +344,8 @@ func parseDMDEFile(filePath string) (*DMDEData, error) {
 		if strings.Contains(line, "<DIR>") {
 			matches := dirRegex.FindStringSubmatch(line)
 			if len(matches) > 1 {
-				// Strip optional category prefix (e.g., "f   Some\path" -> "Some\path")
-				dirPath := stripCategoryFromPath(matches[1])
+				// Strip optional category prefix using known categories
+				dirPath := stripCategoryFromPath(matches[1], knownCategories)
 				dirPath = strings.TrimSuffix(dirPath, "\\")
 				data.Directories = append(data.Directories, dirPath)
 			}
@@ -336,8 +357,8 @@ func parseDMDEFile(filePath string) (*DMDEData, error) {
 			matches := fileRegex.FindStringSubmatch(line)
 			if len(matches) > 2 {
 				size, _ := strconv.ParseInt(matches[1], 10, 64)
-				// Strip optional category prefix (e.g., "f   SomeDir\file.txt" -> "SomeDir\file.txt")
-				filePath := stripCategoryFromPath(matches[2])
+				// Strip optional category prefix using known categories
+				filePath := stripCategoryFromPath(matches[2], knownCategories)
 				data.Files = append(data.Files, FileEntry{
 					Path: filePath,
 					Size: size,
