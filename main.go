@@ -269,15 +269,20 @@ func runVerifyMode(data *DMDEData, targetDir string) {
 
 // stripCategoryFromPath removes the optional category prefix from a captured path.
 // DMDE format has: flags flags [category] path
-// Category is a short code (like 'f') separated from the path by spaces.
-// The path contains backslashes, so we find the last space before the first backslash.
+// Category is a short code (like 'f') separated from the path by 2+ spaces.
+// Folder names can have single spaces (e.g., "Some Dir") but not 2+ consecutive spaces.
+// So we look for 2+ consecutive spaces and take everything after as the path.
 func stripCategoryFromPath(rawPath string) string {
-	idx := strings.Index(rawPath, "\\")
-	if idx > 0 {
-		prefix := rawPath[:idx]
-		lastSpace := strings.LastIndexAny(prefix, " \t")
-		if lastSpace >= 0 {
-			return rawPath[lastSpace+1:]
+	// Look for 2+ consecutive spaces which separate category from path
+	for i := 0; i < len(rawPath)-1; i++ {
+		if rawPath[i] == ' ' && rawPath[i+1] == ' ' {
+			// Found 2+ spaces, skip all spaces and return the rest
+			for i < len(rawPath) && rawPath[i] == ' ' {
+				i++
+			}
+			if i < len(rawPath) {
+				return rawPath[i:]
+			}
 		}
 	}
 	return rawPath
@@ -318,7 +323,7 @@ func parseDMDEFile(filePath string) (*DMDEData, error) {
 		if strings.Contains(line, "<DIR>") {
 			matches := dirRegex.FindStringSubmatch(line)
 			if len(matches) > 1 {
-				// Strip optional category prefix (e.g., "f   MAS\path" -> "MAS\path")
+				// Strip optional category prefix (e.g., "f   Some\path" -> "Some\path")
 				dirPath := stripCategoryFromPath(matches[1])
 				dirPath = strings.TrimSuffix(dirPath, "\\")
 				data.Directories = append(data.Directories, dirPath)
@@ -331,7 +336,7 @@ func parseDMDEFile(filePath string) (*DMDEData, error) {
 			matches := fileRegex.FindStringSubmatch(line)
 			if len(matches) > 2 {
 				size, _ := strconv.ParseInt(matches[1], 10, 64)
-				// Strip optional category prefix (e.g., "f   MAS\file.txt" -> "MAS\file.txt")
+				// Strip optional category prefix (e.g., "f   SomeDir\file.txt" -> "SomeDir\file.txt")
 				filePath := stripCategoryFromPath(matches[2])
 				data.Files = append(data.Files, FileEntry{
 					Path: filePath,
