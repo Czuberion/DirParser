@@ -1,6 +1,6 @@
 # DirParser
 
-DirParser is a small Go script that parses DMDE file recovery lists and can either recreate the directory structure or verify recovered files against the listing. It can come in handy for users of the free version od DMDE who can only recover files in the current panel.
+DirParser is a small Go script that parses DMDE file recovery lists and can either recreate the directory structure or verify recovered files against the listing. It can come in handy for users of the free version of DMDE who can only recover files in the current panel.
 
 ## Build
 
