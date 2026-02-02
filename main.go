@@ -187,7 +187,10 @@ func runVerifyMode(data *DMDEData, targetDir string) {
 	if len(rootDirs) == 0 {
 		fmt.Println("  No root directories found in listing, skipping extra files check")
 	} else {
-		fmt.Printf("  Scanning within: %s\n", strings.Join(rootDirs, ", "))
+		fmt.Println("  Scanning within:")
+		for _, rd := range rootDirs {
+			fmt.Printf("    %s\n", rd)
+		}
 		for _, rootDir := range rootDirs {
 			err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
@@ -264,6 +267,22 @@ func runVerifyMode(data *DMDEData, targetDir string) {
 	}
 }
 
+// stripCategoryFromPath removes the optional category prefix from a captured path.
+// DMDE format has: flags flags [category] path
+// Category is a short code (like 'f') separated from the path by spaces.
+// The path contains backslashes, so we find the last space before the first backslash.
+func stripCategoryFromPath(rawPath string) string {
+	idx := strings.Index(rawPath, "\\")
+	if idx > 0 {
+		prefix := rawPath[:idx]
+		lastSpace := strings.LastIndexAny(prefix, " \t")
+		if lastSpace >= 0 {
+			return rawPath[lastSpace+1:]
+		}
+	}
+	return rawPath
+}
+
 // parseDMDEFile reads the DMDE file and extracts directories, files, and expected counts
 func parseDMDEFile(filePath string) (*DMDEData, error) {
 	// Read the entire file
@@ -278,12 +297,14 @@ func parseDMDEFile(filePath string) (*DMDEData, error) {
 	data := &DMDEData{}
 
 	// Regex to match directory lines (contains <DIR>, then flags, then path ending with \)
-	// Format: date time <DIR> flags flags category  path\
-	// Example: 2025-01-17 13:29:18.927  <DIR>                 D---- ---A  f   SUML 1\
-	dirRegex := regexp.MustCompile(`<DIR>\s+\S+\s+\S+\s+\S+\s+(.+\\)\s*$`)
+	// Format: date time <DIR> flags flags [category]  path\
+	// Example: 2025-01-17 13:29:18.927  <DIR>                 D---- ---A  f   Some_dir 1\
+	// Note: category may be empty, so we only require 2 flag fields before the path
+	dirRegex := regexp.MustCompile(`<DIR>\s+\S+\s+\S+\s+(.+\\)\s*$`)
 	// Regex to match file lines (has size, no <DIR>, path without trailing \)
-	// Format: date time  size  flags  flags  category  path
-	fileRegex := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+\s+(\d+)\s+\S+\s+\S+\s+\S+\s+(.+?)\s*$`)
+	// Format: date time  size  flags  flags  [category]  path
+	// Note: category may be empty, so we only require 2 flag fields before the path
+	fileRegex := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+\s+(\d+)\s+\S+\s+\S+\s+(.+?)\s*$`)
 	// Regex to extract the total directories count
 	totalDirsRegex := regexp.MustCompile(`Total directories:\s*(\d+)`)
 	// Regex to extract the total files count
@@ -297,7 +318,9 @@ func parseDMDEFile(filePath string) (*DMDEData, error) {
 		if strings.Contains(line, "<DIR>") {
 			matches := dirRegex.FindStringSubmatch(line)
 			if len(matches) > 1 {
-				dirPath := strings.TrimSuffix(matches[1], "\\")
+				// Strip optional category prefix (e.g., "f   MAS\path" -> "MAS\path")
+				dirPath := stripCategoryFromPath(matches[1])
+				dirPath = strings.TrimSuffix(dirPath, "\\")
 				data.Directories = append(data.Directories, dirPath)
 			}
 			continue
@@ -308,8 +331,10 @@ func parseDMDEFile(filePath string) (*DMDEData, error) {
 			matches := fileRegex.FindStringSubmatch(line)
 			if len(matches) > 2 {
 				size, _ := strconv.ParseInt(matches[1], 10, 64)
+				// Strip optional category prefix (e.g., "f   MAS\file.txt" -> "MAS\file.txt")
+				filePath := stripCategoryFromPath(matches[2])
 				data.Files = append(data.Files, FileEntry{
-					Path: matches[2],
+					Path: filePath,
 					Size: size,
 				})
 			}
