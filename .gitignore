@@ -1,0 +1,31 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go build artifacts
+*.test
+*.out
+*.prof
+*.cover
+
+# Go module files
+go.mod
+
+# Go workspace files
+*.swp
+*.swo
+*.tmp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# Optional local outputs and test list
+test_output/
+test_filelist.txt
